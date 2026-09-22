@@ -120,8 +120,8 @@ CLI (same scripts as the Quick Actions):
 export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
 export OLLAMA_HOST="http://127.0.0.1:11434"
 
-# pipx markitdown venv Python
-PY="$HOME/Library/Application Support/pipx/venvs/markitdown/bin/python"
+# pipx markitdown venv Python (path varies by pipx; shebang is authoritative)
+PY="$(awk 'NR==1 { sub(/^#!/, ""); print $1; exit }' "$(command -v markitdown)")"
 
 "$PY" ~/Scripts/markitdown_qa.py ./some.pdf
 "$PY" ~/Scripts/markitdown_qa.py ./photo.jpg

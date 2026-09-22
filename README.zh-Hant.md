@@ -119,8 +119,8 @@ ollama pull qwen3.5:4b
 export PATH="/opt/homebrew/bin:$HOME/.local/bin:$PATH"
 export OLLAMA_HOST="http://127.0.0.1:11434"
 
-# 用 pipx markitdown venv 嘅 Python
-PY="$HOME/Library/Application Support/pipx/venvs/markitdown/bin/python"
+# 用 pipx markitdown venv 嘅 Python（路徑因 pipx 而異；以 shebang 為準）
+PY="$(awk 'NR==1 { sub(/^#!/, ""); print $1; exit }' "$(command -v markitdown)")"
 
 "$PY" ~/Scripts/markitdown_qa.py ./some.pdf
 "$PY" ~/Scripts/markitdown_qa.py ./photo.jpg

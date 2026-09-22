@@ -64,9 +64,31 @@ fi
 echo "markitdown: $MARKITDOWN_BIN ($("$MARKITDOWN_BIN" --version 2>/dev/null || true))"
 export MARKITDOWN_BIN
 
+# pipx venv lives under ~/.local/pipx or ~/Library/Application Support/pipx depending on version/config
+MARKITDOWN_PY=""
+if [[ -f "$MARKITDOWN_BIN" ]]; then
+  MARKITDOWN_PY="$(awk 'NR==1 { sub(/^#!/, ""); print $1; exit }' "$MARKITDOWN_BIN")"
+fi
+if [[ -z "$MARKITDOWN_PY" || ! -x "$MARKITDOWN_PY" ]]; then
+  for candidate in \
+    "$HOME/.local/pipx/venvs/markitdown/bin/python" \
+    "$HOME/Library/Application Support/pipx/venvs/markitdown/bin/python"; do
+    if [[ -x "$candidate" ]]; then
+      MARKITDOWN_PY="$candidate"
+      break
+    fi
+  done
+fi
+if [[ -z "$MARKITDOWN_PY" || ! -x "$MARKITDOWN_PY" ]]; then
+  echo "ERROR: markitdown pipx venv python not found (checked shebang + common pipx paths)."
+  exit 1
+fi
+echo "markitdown python: $MARKITDOWN_PY"
+export MARKITDOWN_PY
+
 echo "Verifying markitdown-ocr + pymupdf4llm..."
 markitdown --list-plugins || true
-"$HOME/Library/Application Support/pipx/venvs/markitdown/bin/python" - <<'PY'
+"$MARKITDOWN_PY" - <<'PY'
 import importlib.util
 for name in ("pymupdf", "pymupdf4llm", "openai"):
     print(name, "OK" if importlib.util.find_spec(name) else "MISSING")
@@ -109,13 +131,14 @@ for name in "Convert to Markdown" "Ollama AI Redact"; do
   fi
 done
 
-MARKITDOWN_BIN="$MARKITDOWN_BIN" "$VENV/bin/python" - << 'PY'
+MARKITDOWN_BIN="$MARKITDOWN_BIN" MARKITDOWN_PY="$MARKITDOWN_PY" "$VENV/bin/python" - << 'PY'
+import os
 import plistlib
 from pathlib import Path
 
 home = Path.home()
 services = home / "Library" / "Services"
-mark_py = home / "Library" / "Application Support" / "pipx" / "venvs" / "markitdown" / "bin" / "python"
+mark_py = Path(os.environ["MARKITDOWN_PY"])
 redact_py = home / "Scripts" / "ollama-redact-venv" / "bin" / "python"
 mark_helper = home / "Scripts" / "markitdown_qa.py"
 redact_helper = home / "Scripts" / "ollama_redact.py"
