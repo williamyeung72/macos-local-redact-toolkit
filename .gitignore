@@ -1,0 +1,54 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+ollama-redact-venv/
+
+# Environment, credentials and certificates
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.mobileprovision
+credentials.json
+service-account*.json
+oauth*.json
+
+# Logs, generated output and temporary files
+*.log
+logs/
+output/
+outputs/
+tmp/
+temp/
+*.tmp
+*_redacted.md
+*_redacted.txt
+*_redacted.pdf
+
+# Private input documents and local test data
+private/
+samples/private/
+test-data/private/
+
+# Build / distribution artefacts
+build/
+dist/
+
+# Local grilling / planning artefacts
+.scratch/

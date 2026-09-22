@@ -1,0 +1,5 @@
+Parent name: Alex Chan
+Student name: Jamie Chan
+Email: alex.chan@example.test
+Phone: +852 9123 4567
+Address: 1 Example Road, Hong Kong
