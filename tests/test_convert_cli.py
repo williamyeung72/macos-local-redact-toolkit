@@ -72,6 +72,26 @@ class ConvertImageTests(unittest.TestCase):
 
         self.assertEqual(qa.PDF_MODE, "pymupdf4llm")
 
+    def test_image_only_pdf_uses_apple_visual(self) -> None:
+        from markitdown_qa import convert_pdf
+
+        class VisionWorker(FakeAppleWorker):
+            def vision_markdown(self, image_path: Path) -> str:
+                return "VISION_OK Chinese 截圖"
+
+        with tempfile.TemporaryDirectory() as raw:
+            pdf = Path(raw) / "shot.pdf"
+            import pymupdf
+
+            doc = pymupdf.open()
+            page = doc.new_page(width=200, height=100)
+            page.insert_image(page.rect, stream=PNG)
+            doc.save(pdf)
+            doc.close()
+            text = convert_pdf(pdf, worker=VisionWorker())
+            self.assertIn("VISION_OK", text)
+            self.assertNotIn("Start of picture text", text)
+
 
 class ConvertOfficeTests(unittest.TestCase):
     def _pptx(self, folder: Path, with_media: bool) -> Path:

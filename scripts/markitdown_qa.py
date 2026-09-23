@@ -2,8 +2,8 @@
 """Convert to Markdown — Microsoft MarkItDown + PyMuPDF for PDF.
 
 Images: EXIF + Apple visual understanding; Tesseract fallback.
-PDF: pymupdf4llm by default; MARKITDOWN_PDF_MODE=vision for full-page Apple visual;
-text|auto for plain PyMuPDF / heuristic.
+PDF: pymupdf4llm for text PDFs; image-only / sparse-text PDFs use Apple visual
+(MARKITDOWN_PDF_MODE=vision forces visual; text|auto for plain / heuristic).
 Office (docx/pptx/xlsx): fast MarkItDown; embedded images via Apple visual when available.
 
 Other formats: MarkItDown.
@@ -46,8 +46,26 @@ def ocr_fallback(path: Path) -> str:
     from PIL import Image
     import pytesseract
 
+    langs = "eng"
+    try:
+        available = set(pytesseract.get_languages(config=""))
+        if "chi_tra" in available:
+            langs = "chi_tra+eng"
+        elif "chi_sim" in available:
+            langs = "chi_sim+eng"
+    except Exception:
+        pass
     with Image.open(path) as im:
-        return pytesseract.image_to_string(im.convert("RGB")).strip()
+        return pytesseract.image_to_string(im.convert("RGB"), lang=langs).strip()
+
+
+def _pdf_after_vision_failed(path: Path, err: Exception) -> str:
+    print(f"PDF vision failed ({err}); falling back to pymupdf4llm", file=sys.stderr)
+    try:
+        return convert_pdf_pymupdf4llm(path)
+    except Exception as e2:
+        print(f"pymupdf4llm failed ({e2}); plain PyMuPDF", file=sys.stderr)
+        return convert_pdf_pymupdf(path)
 
 
 def convert_image(path: Path, worker: AppleWorker | None = None) -> str:
@@ -215,12 +233,7 @@ def convert_pdf(path: Path, worker: AppleWorker | None = None) -> str:
         try:
             return convert_pdf_vision(path, worker=worker)
         except Exception as e:
-            print(f"PDF vision failed ({e}); falling back to pymupdf4llm", file=sys.stderr)
-            try:
-                return convert_pdf_pymupdf4llm(path)
-            except Exception as e2:
-                print(f"pymupdf4llm failed ({e2}); plain PyMuPDF", file=sys.stderr)
-                return convert_pdf_pymupdf(path)
+            return _pdf_after_vision_failed(path, e)
 
     if mode == "text":
         return convert_pdf_pymupdf(path)
@@ -230,15 +243,21 @@ def convert_pdf(path: Path, worker: AppleWorker | None = None) -> str:
             try:
                 return convert_pdf_vision(path, worker=worker)
             except Exception as e:
-                print(f"PDF vision failed ({e}); falling back to pymupdf4llm", file=sys.stderr)
-        # text-heavy or vision failed → pymupdf4llm
+                return _pdf_after_vision_failed(path, e)
         try:
             return convert_pdf_pymupdf4llm(path)
         except Exception as e:
             print(f"pymupdf4llm failed ({e}); plain PyMuPDF", file=sys.stderr)
             return convert_pdf_pymupdf(path)
 
-    # default: pymupdf4llm
+    # default pymupdf4llm: but image-only / sparse-text PDFs must not use English
+    # Tesseract via pymupdf4llm (Chinese screenshots become mojibake).
+    if pdf_is_hard_scan(path):
+        try:
+            return convert_pdf_vision(path, worker=worker)
+        except Exception as e:
+            return _pdf_after_vision_failed(path, e)
+
     try:
         return convert_pdf_pymupdf4llm(path)
     except Exception as e:

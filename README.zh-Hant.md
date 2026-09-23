@@ -30,7 +30,7 @@ macOS [Finder 快速操作](https://support.apple.com/guide/mac-help/mchl7ab3645
 
 | 類型 | 預設行為 |
 | --- | --- |
-| **PDF** | **`pymupdf4llm`**（本機表格式抽取） |
+| **PDF** | **`pymupdf4llm`**（文字 PDF）；截圖／字少 → Apple 視覺理解 |
 | PDF（可選） | `MARKITDOWN_PDF_MODE=vision` → 整頁 Apple 視覺理解 |
 | PDF（可選） | `text` = 純 PyMuPDF blocks；`auto` = 字少先 vision，否則 pymupdf4llm |
 | **Office**（docx／pptx／xlsx） | MarkItDown；內嵌圖片在可用時走 Apple 視覺理解 |

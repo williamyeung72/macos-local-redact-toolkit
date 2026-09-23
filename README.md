@@ -31,7 +31,7 @@ An older Finder item named **Ollama AI Redact**, if already installed, is left o
 
 | Type | Default behaviour |
 | --- | --- |
-| **PDF** | **`pymupdf4llm`** (local table-aware extraction) |
+| **PDF** | **`pymupdf4llm`** for text PDFs; image-only / sparse text → Apple visual |
 | PDF (optional) | `MARKITDOWN_PDF_MODE=vision` → full-page Apple visual understanding |
 | PDF (optional) | `text` = plain PyMuPDF blocks; `auto` = vision when extractable text is sparse, otherwise pymupdf4llm |
 | **Office** (docx / pptx / xlsx) | MarkItDown; embedded images via Apple visual understanding when available |
