@@ -15,7 +15,7 @@ from pathlib import Path
 
 import ollama
 
-from apple_worker import AppleWorker, FakeAppleWorker, WorkerResult
+from apple_worker import AppleWorker, FakeAppleWorker, SwiftAppleWorker, WorkerResult
 
 TEXT_MODEL = os.environ.get("OLLAMA_REDACT_TEXT_MODEL", "llama3.1:latest")
 VISION_MODEL = os.environ.get("OLLAMA_REDACT_VISION_MODEL", "qwen3.5:4b")
@@ -73,9 +73,12 @@ def chat_text(content: str) -> str:
 
 
 def _default_worker() -> AppleWorker:
-    if os.environ.get("REDACT_WORKER", "").strip().lower() == "fake":
+    kind = os.environ.get("REDACT_WORKER", "").strip().lower()
+    if kind == "fake":
         return FakeAppleWorker()
-    return OllamaTextWorker()
+    if kind == "ollama":
+        return OllamaTextWorker()
+    return SwiftAppleWorker()
 
 
 class OllamaTextWorker:
@@ -238,6 +241,7 @@ def main(argv: list[str]) -> int:
 
     ok = fail = 0
     worker = _default_worker()
+    last_err = ""
     for raw in argv[1:]:
         try:
             if redact_file(raw, worker=worker):
@@ -246,6 +250,7 @@ def main(argv: list[str]) -> int:
                 fail += 1
         except Exception as e:
             fail += 1
+            last_err = str(e)
             log(f"ERROR {raw}: {e}\n{traceback.format_exc()}")
 
     if ok and not fail:
@@ -254,7 +259,8 @@ def main(argv: list[str]) -> int:
     if ok and fail:
         notify("Ollama AI Redact", f"Succeeded {ok}, failed {fail} (see Logs)")
         return 2
-    notify("Ollama AI Redact failed", "See ~/Library/Logs/ollama-redact.log")
+    body = last_err.strip() or "See ~/Library/Logs/ollama-redact.log"
+    notify("Ollama AI Redact failed", body[:180])
     return 1
 
 

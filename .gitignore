@@ -49,6 +49,7 @@ test-data/private/
 # Build / distribution artefacts
 build/
 dist/
+native/apple-redact-worker/bin/
 
 # Local grilling / planning artefacts
 .scratch/
