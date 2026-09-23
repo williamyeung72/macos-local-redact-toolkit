@@ -4,8 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 SERVICES_DIR="$HOME/Library/Services"
 SCRIPTS_DIR="$HOME/Scripts"
-VENV="$SCRIPTS_DIR/ollama-redact-venv"
-LOG="$HOME/Library/Logs/ollama-redact-install.log"
+VENV="$SCRIPTS_DIR/ai-redact-venv"
+LOG="$HOME/Library/Logs/ai-redact-install.log"
+HELPER_SRC="$ROOT/native/apple-redact-worker"
 
 mkdir -p "$SCRIPTS_DIR" "$SERVICES_DIR" "$(dirname "$LOG")"
 exec > >(tee -a "$LOG") 2>&1
@@ -44,14 +45,13 @@ fi
 pipx ensurepath >/dev/null 2>&1 || true
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-# markitdown-ocr needs >=0.1.8; avoid markitdown[all] (azure pre-release pin)
 echo "Installing/upgrading markitdown==0.1.8 via pipx..."
 if command -v markitdown >/dev/null 2>&1; then
   pipx uninstall markitdown || true
 fi
 pipx install "markitdown==0.1.8"
 pipx inject markitdown "markitdown[pdf,docx,pptx,xlsx]" \
-  markitdown-ocr openai pillow pytesseract pypdf pymupdf pymupdf4llm
+  pillow pytesseract pypdf pymupdf pymupdf4llm
 
 MARKITDOWN_BIN="$(command -v markitdown || true)"
 if [[ -z "$MARKITDOWN_BIN" && -x "$HOME/.local/bin/markitdown" ]]; then
@@ -86,11 +86,10 @@ fi
 echo "markitdown python: $MARKITDOWN_PY"
 export MARKITDOWN_PY
 
-echo "Verifying markitdown-ocr + pymupdf4llm..."
-markitdown --list-plugins || true
+echo "Verifying pymupdf4llm..."
 "$MARKITDOWN_PY" - <<'PY'
 import importlib.util
-for name in ("pymupdf", "pymupdf4llm", "openai"):
+for name in ("pymupdf", "pymupdf4llm"):
     print(name, "OK" if importlib.util.find_spec(name) else "MISSING")
 PY
 pipx runpip markitdown install -U httpx SpeechRecognition || true
@@ -112,13 +111,23 @@ if [[ ! -x "$VENV/bin/python" ]]; then
   echo "Creating venv: $VENV"
   "$PY" -m venv "$VENV"
 fi
-"$VENV/bin/pip" install -U pip ollama pymupdf pillow pytesseract
+"$VENV/bin/pip" install -U pip
+
+echo "Building Apple Intelligence helper..."
+if [[ ! -x "$HELPER_SRC/build.sh" ]]; then
+  echo "ERROR: missing $HELPER_SRC/build.sh"
+  exit 1
+fi
+zsh "$HELPER_SRC/build.sh"
+cp "$HELPER_SRC/bin/apple-redact-worker" "$SCRIPTS_DIR/apple-redact-worker"
+chmod +x "$SCRIPTS_DIR/apple-redact-worker"
 
 cp "$ROOT/scripts/markitdown_qa.py" "$SCRIPTS_DIR/markitdown_qa.py"
-cp "$ROOT/scripts/ollama_redact.py" "$SCRIPTS_DIR/ollama_redact.py"
-chmod +x "$SCRIPTS_DIR/markitdown_qa.py" "$SCRIPTS_DIR/ollama_redact.py"
+cp "$ROOT/scripts/apple_worker.py" "$SCRIPTS_DIR/apple_worker.py"
+cp "$ROOT/scripts/ai_redact.py" "$SCRIPTS_DIR/ai_redact.py"
+chmod +x "$SCRIPTS_DIR/markitdown_qa.py" "$SCRIPTS_DIR/ai_redact.py"
 
-for name in "Convert to Markdown" "Ollama AI Redact"; do
+for name in "Convert to Markdown" "AI Redact"; do
   src="$ROOT/services/$name.workflow"
   dst="$SERVICES_DIR/$name.workflow"
   if [[ -d "$src" ]]; then
@@ -139,9 +148,9 @@ from pathlib import Path
 home = Path.home()
 services = home / "Library" / "Services"
 mark_py = Path(os.environ["MARKITDOWN_PY"])
-redact_py = home / "Scripts" / "ollama-redact-venv" / "bin" / "python"
+redact_py = home / "Scripts" / "ai-redact-venv" / "bin" / "python"
 mark_helper = home / "Scripts" / "markitdown_qa.py"
-redact_helper = home / "Scripts" / "ollama_redact.py"
+redact_helper = home / "Scripts" / "ai_redact.py"
 
 def rewrite_workflow(name: str, command: str):
     wf = services / f"{name}.workflow" / "Contents" / "document.wflow"
@@ -154,7 +163,6 @@ def rewrite_workflow(name: str, command: str):
     print(f"Rewrote {name}.workflow with this user's paths")
 
 mark_cmd = f'''export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:$PATH"
-export OLLAMA_HOST="${{OLLAMA_HOST:-http://127.0.0.1:11434}}"
 export MARKITDOWN_PDF_MODE="${{MARKITDOWN_PDF_MODE:-pymupdf4llm}}"
 PY="{mark_py}"
 HELPER="{mark_helper}"
@@ -176,41 +184,38 @@ exit 1
 '''
 
 redact_cmd = f'''export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:$PATH"
-export OLLAMA_HOST="${{OLLAMA_HOST:-http://127.0.0.1:11434}}"
 PY="{redact_py}"
 HELPER="{redact_helper}"
-LOG="$HOME/Library/Logs/ollama-redact.log"
+LOG="$HOME/Library/Logs/ai-redact.log"
 mkdir -p "$(dirname "$LOG")"
 
 if [ ! -x "$PY" ]; then
-  /usr/bin/osascript -e 'display notification "ollama-redact venv not found" with title "Ollama AI Redact"'
+  /usr/bin/osascript -e 'display notification "ai-redact venv not found" with title "AI Redact"'
   exit 1
 fi
 
 if "$PY" "$HELPER" "$@" >"$LOG" 2>&1; then
-  /usr/bin/osascript -e 'display notification "Done" with title "Ollama AI Redact"'
+  /usr/bin/osascript -e 'display notification "Done" with title "AI Redact"'
   exit 0
 fi
 err=$(/usr/bin/tail -n 3 "$LOG" 2>/dev/null | /usr/bin/tr '\\n' ' ' | /usr/bin/cut -c1-180)
-/usr/bin/osascript -e "display notification \\"${{err:-see ~/Library/Logs/ollama-redact.log}}\\" with title \\"Ollama AI Redact failed\\""
+/usr/bin/osascript -e "display notification \\"${{err:-see ~/Library/Logs/ai-redact.log}}\\" with title \\"AI Redact failed\\""
 exit 1
 '''
 
 rewrite_workflow("Convert to Markdown", mark_cmd)
-rewrite_workflow("Ollama AI Redact", redact_cmd)
+rewrite_workflow("AI Redact", redact_cmd)
 PY
 
 echo
 echo "=== Done ==="
 echo "Scripts: $SCRIPTS_DIR"
+echo "Helper: $SCRIPTS_DIR/apple-redact-worker"
 echo "Services: $SERVICES_DIR"
+echo "Apple on-device plus Private Cloud Compute, no third-party model hosts."
 echo "Next:"
-echo "  1) Open Ollama"
-echo "  2) ollama pull llama3.1:latest"
-echo "  3) ollama pull qwen3.5:4b"
-echo "  4) Finder → right-click a PDF/image → Quick Actions → Convert to Markdown / Ollama AI Redact"
+echo "  1) Enable Apple Intelligence (macOS 26+)"
+echo "  2) Finder → right-click a PDF/image → Quick Actions → Convert to Markdown / AI Redact"
 echo "PDF default: pymupdf4llm; vision: MARKITDOWN_PDF_MODE=vision"
 echo "If the actions are missing: Quick Actions → Customize… and turn both on"
-if [[ "${OLLAMA_HOST:-}" == *"0.0.0.0"* ]]; then
-  echo "NOTE: shell OLLAMA_HOST=$OLLAMA_HOST — tools normalize to http://127.0.0.1:11434"
-fi
+echo "Convert to Markdown works without Apple Intelligence. AI Redact requires it."

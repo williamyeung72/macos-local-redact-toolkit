@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from apple_worker import FakeAppleWorker, SwiftAppleWorker  # noqa: E402
-from ollama_redact import main, redact_file  # noqa: E402
+from ai_redact import main, redact_file  # noqa: E402
 
 
 class RedactMarkdownTests(unittest.TestCase):
@@ -69,21 +69,26 @@ class RedactMarkdownTests(unittest.TestCase):
             folder = Path(raw)
             ok_src = folder / "ok.md"
             ok_src.write_text("Hi alex.chan@example.test\n", encoding="utf-8")
-            with mock.patch("ollama_redact.notify"):
+            with mock.patch("ai_redact.notify") as notify:
                 with mock.patch.dict("os.environ", {"REDACT_WORKER": "fake"}):
                     self.assertEqual(
-                        main(["ollama_redact.py", str(ok_src)]),
+                        main(["ai_redact.py", str(ok_src)]),
                         0,
                     )
                     self.assertEqual(
-                        main(["ollama_redact.py", str(ok_src), str(folder / "missing.md")]),
+                        main(["ai_redact.py", str(ok_src), str(folder / "missing.md")]),
                         2,
                     )
-                    self.assertEqual(main(["ollama_redact.py"]), 1)
+                    self.assertEqual(main(["ai_redact.py"]), 1)
                     self.assertEqual(
-                        main(["ollama_redact.py", str(folder / "gone-a.md"), str(folder / "gone-b.md")]),
+                        main(["ai_redact.py", str(folder / "gone-a.md"), str(folder / "gone-b.md")]),
                         1,
                     )
+            titles = [call.args[0] for call in notify.call_args_list]
+            self.assertTrue(titles)
+            for title in titles:
+                self.assertIn("AI Redact", title)
+                self.assertNotIn("Ollama", title)
 
     def test_convert_default_pdf_mode_does_not_use_apple_worker(self) -> None:
         source = (ROOT / "scripts" / "markitdown_qa.py").read_text(encoding="utf-8")
@@ -151,9 +156,50 @@ class SwiftWorkerTests(unittest.TestCase):
             stub.chmod(0o755)
             src = folder / "note.md"
             src.write_text("Contact: alex.chan@example.test\n", encoding="utf-8")
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(RuntimeError) as ctx:
                 redact_file(str(src), worker=SwiftAppleWorker(helper=stub))
+            self.assertIn("Apple Intelligence", str(ctx.exception))
             self.assertFalse((folder / "note_redacted.md").exists())
+
+
+class ShipAIRedactTests(unittest.TestCase):
+    def test_installer_builds_helper_and_leaves_old_ollama_action(self) -> None:
+        install = (ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn("apple-redact-worker", install)
+        self.assertIn('rewrite_workflow("AI Redact"', install)
+        self.assertNotIn("ollama pull", install)
+        self.assertNotIn(" ollama ", install)
+        self.assertNotIn("Ollama AI Redact", install)
+
+    def test_public_docs_and_scripts_drop_ollama_runtime(self) -> None:
+        for rel in (
+            "README.md",
+            "README.zh-Hant.md",
+            "install.sh",
+            "scripts/ai_redact.py",
+            "scripts/markitdown_qa.py",
+            "SECURITY.md",
+            "CONTRIBUTING.md",
+        ):
+            text = (ROOT / rel).read_text(encoding="utf-8")
+            self.assertNotIn("ollama pull", text)
+            self.assertNotIn("import ollama", text)
+            self.assertNotIn("from openai import OpenAI", text)
+            self.assertNotIn("ollama.com", text)
+            self.assertNotIn("markitdown-ocr", text)
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("AI Redact", readme)
+        self.assertIn("Private Cloud Compute", readme)
+        self.assertNotIn("Offline-first", readme)
+        self.assertIn("Convert to Markdown", readme)
+        zh = (ROOT / "README.zh-Hant.md").read_text(encoding="utf-8")
+        self.assertIn("AI Redact", zh)
+        self.assertIn("Private Cloud Compute", zh)
+        finder = (
+            ROOT / "services" / "AI Redact.workflow" / "Contents" / "Info.plist"
+        ).read_text(encoding="utf-8")
+        self.assertIn("<string>AI Redact</string>", finder)
+        self.assertNotIn("Ollama AI Redact", finder)
 
 
 if __name__ == "__main__":

@@ -60,23 +60,22 @@
 				<dict>
 					<key>COMMAND_STRING</key>
 					<string>export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:$PATH"
-export OLLAMA_HOST="${OLLAMA_HOST:-http://127.0.0.1:11434}"
-PY="$HOME/Scripts/ollama-redact-venv/bin/python"
-HELPER="$HOME/Scripts/ollama_redact.py"
-LOG="$HOME/Library/Logs/ollama-redact.log"
+PY="$HOME/Scripts/ai-redact-venv/bin/python"
+HELPER="$HOME/Scripts/ai_redact.py"
+LOG="$HOME/Library/Logs/ai-redact.log"
 mkdir -p "$(dirname "$LOG")"
 
 if [ ! -x "$PY" ]; then
-  /usr/bin/osascript -e 'display notification "ollama-redact venv not found" with title "Ollama AI Redact"'
+  /usr/bin/osascript -e 'display notification "ai-redact venv not found" with title "AI Redact"'
   exit 1
 fi
 
 if "$PY" "$HELPER" "$@" &gt;"$LOG" 2&gt;&amp;1; then
-  /usr/bin/osascript -e 'display notification "Done" with title "Ollama AI Redact"'
+  /usr/bin/osascript -e 'display notification "Done" with title "AI Redact"'
   exit 0
 fi
 err=$(/usr/bin/tail -n 3 "$LOG" 2&gt;/dev/null | /usr/bin/tr '\n' ' ' | /usr/bin/cut -c1-180)
-/usr/bin/osascript -e "display notification \"${err:-see ~/Library/Logs/ollama-redact.log}\" with title \"Ollama AI Redact failed\""
+/usr/bin/osascript -e "display notification \"${err:-see ~/Library/Logs/ai-redact.log}\" with title \"AI Redact failed\""
 exit 1
 </string>
 					<key>CheckedForUserDefaultShell</key>

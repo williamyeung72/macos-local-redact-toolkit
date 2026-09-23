@@ -13,6 +13,7 @@ __pycache__/
 .venv/
 venv/
 ollama-redact-venv/
+ai-redact-venv/
 
 # Environment, credentials and certificates
 .env

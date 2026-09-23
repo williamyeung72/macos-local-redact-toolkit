@@ -17,10 +17,14 @@ Please include:
 
 - macOS version
 - Apple Silicon or Intel Mac
-- Python and Ollama versions
-- input file type
+- whether Apple Intelligence is enabled
+- Python version
+- input file type (synthetic only)
 - selected PDF mode
 - relevant sanitized log excerpt
 - expected and actual behaviour
 
 Do not include private documents or unredacted sensitive content.
+
+Apple may process some requests on-device and some via Private Cloud Compute.
+Do not treat a bug report as a place to paste real documents.

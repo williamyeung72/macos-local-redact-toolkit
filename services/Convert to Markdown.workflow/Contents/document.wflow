@@ -60,7 +60,6 @@
 				<dict>
 					<key>COMMAND_STRING</key>
 					<string>export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:/usr/bin:/bin:$PATH"
-export OLLAMA_HOST="${OLLAMA_HOST:-http://127.0.0.1:11434}"
 export MARKITDOWN_PDF_MODE="${MARKITDOWN_PDF_MODE:-pymupdf4llm}"
 PY="$HOME/.local/pipx/venvs/markitdown/bin/python"
 if [ ! -x "$PY" ]; then
