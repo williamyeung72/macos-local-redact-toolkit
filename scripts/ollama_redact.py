@@ -15,6 +15,8 @@ from pathlib import Path
 
 import ollama
 
+from apple_worker import AppleWorker, FakeAppleWorker, WorkerResult
+
 TEXT_MODEL = os.environ.get("OLLAMA_REDACT_TEXT_MODEL", "llama3.1:latest")
 VISION_MODEL = os.environ.get("OLLAMA_REDACT_VISION_MODEL", "qwen3.5:4b")
 LOG_PATH = Path.home() / "Library" / "Logs" / "ollama-redact.log"
@@ -68,6 +70,19 @@ def chat_text(content: str) -> str:
         ],
     )
     return resp["message"]["content"]
+
+
+def _default_worker() -> AppleWorker:
+    if os.environ.get("REDACT_WORKER", "").strip().lower() == "fake":
+        return FakeAppleWorker()
+    return OllamaTextWorker()
+
+
+class OllamaTextWorker:
+    """Existing Ollama text path, wrapped as an AppleWorker (expand; removed later)."""
+
+    def redact_chunk(self, text: str, entity_map: dict[str, str]) -> WorkerResult:
+        return WorkerResult(text=chat_text(text), entity_map=dict(entity_map))
 
 
 def chat_image(path: Path) -> str:
@@ -138,12 +153,42 @@ def to_markdown(path: Path) -> Path:
         raise RuntimeError(err or f"markitdown_qa failed ({proc.returncode})")
     return out
 
-def redact_file(file_path: str) -> Path | None:
+def chunk_text(text: str, max_chars: int) -> list[str]:
+    if max_chars <= 0 or len(text) <= max_chars:
+        return [text]
+    chunks: list[str] = []
+    buf = ""
+    for line in text.splitlines(keepends=True):
+        if buf and len(buf) + len(line) > max_chars:
+            chunks.append(buf)
+            buf = line
+        else:
+            buf += line
+    if buf:
+        chunks.append(buf)
+    return chunks or [text]
+
+
+def redact_markdown(content: str, worker: AppleWorker) -> str:
+    max_chars = int(os.environ.get("REDACT_CHUNK_CHARS", "60000"))
+    entity_map: dict[str, str] = {}
+    parts: list[str] = []
+    for chunk in chunk_text(content, max_chars):
+        result = worker.redact_chunk(chunk, dict(entity_map))
+        for original, token in result.entity_map.items():
+            if original not in entity_map:
+                entity_map[original] = token
+        parts.append(result.text)
+    return "".join(parts)
+
+
+def redact_file(file_path: str, worker: AppleWorker | None = None) -> Path | None:
     path = Path(file_path).expanduser().resolve()
     if not path.exists() or not path.is_file():
         log(f"skip missing: {file_path}")
         return None
 
+    active = worker or _default_worker()
     ext = path.suffix.lower()
     out = path.with_name(f"{path.stem}_redacted.md")
 
@@ -152,7 +197,7 @@ def redact_file(file_path: str) -> Path | None:
         content = path.read_text(encoding="utf-8", errors="ignore")
         if not content.strip():
             raise RuntimeError(f"empty md: {path.name}")
-        out.write_text(chat_text(content), encoding="utf-8")
+        out.write_text(redact_markdown(content, active), encoding="utf-8")
         log(f"ok(md): {path} -> {out}")
         return out
 
@@ -170,7 +215,7 @@ def redact_file(file_path: str) -> Path | None:
         # Redact from markdown; output *_redacted.md next to source stem
         # If source was foo.pdf -> foo.md -> foo_redacted.md
         out = md_path.with_name(f"{md_path.stem}_redacted.md")
-        out.write_text(chat_text(md_text), encoding="utf-8")
+        out.write_text(redact_markdown(md_text, active), encoding="utf-8")
         log(f"ok(md-redact): {path} -> {md_path} -> {out}")
         return out
 
@@ -192,9 +237,10 @@ def main(argv: list[str]) -> int:
         return 1
 
     ok = fail = 0
+    worker = _default_worker()
     for raw in argv[1:]:
         try:
-            if redact_file(raw):
+            if redact_file(raw, worker=worker):
                 ok += 1
             else:
                 fail += 1
