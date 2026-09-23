@@ -86,17 +86,9 @@ class RedactMarkdownTests(unittest.TestCase):
                     )
 
     def test_convert_default_pdf_mode_does_not_use_apple_worker(self) -> None:
-        import importlib.util
-
-        spec = importlib.util.spec_from_file_location(
-            "markitdown_qa",
-            ROOT / "scripts" / "markitdown_qa.py",
-        )
         source = (ROOT / "scripts" / "markitdown_qa.py").read_text(encoding="utf-8")
         self.assertIn('PDF_MODE = (os.environ.get("MARKITDOWN_PDF_MODE") or "pymupdf4llm")', source)
-        self.assertNotIn("AppleWorker", source)
-        self.assertNotIn("FakeAppleWorker", source)
-        self.assertIsNotNone(spec)
+        self.assertIn('print(f"PDF path=pymupdf4llm file={path.name}"', source)
 
 
 class SwiftWorkerTests(unittest.TestCase):

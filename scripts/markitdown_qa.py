@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Convert to Markdown — Microsoft MarkItDown + PyMuPDF for PDF.
 
-Images: EXIF + local Ollama vision (qwen3.5:4b); Tesseract fallback.
-PDF: pymupdf4llm by default; MARKITDOWN_PDF_MODE=vision for full-page Ollama;
+Images: EXIF + Apple visual understanding; Tesseract fallback.
+PDF: pymupdf4llm by default; MARKITDOWN_PDF_MODE=vision for full-page Apple visual;
 text|auto for plain PyMuPDF / heuristic.
 Office (docx/pptx/xlsx): markitdown-ocr + Ollama when reachable; else fast MarkItDown.
 Other formats: MarkItDown.
@@ -17,8 +17,6 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
-
-from markitdown import MarkItDown
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".tif", ".tiff"}
 OFFICE_EXTS = {".docx", ".pptx", ".xlsx"}
@@ -40,6 +38,15 @@ def _ollama_base() -> str:
 
 
 OLLAMA_HOST = _ollama_base()
+
+from apple_worker import AppleWorker, SwiftAppleWorker
+
+
+def markitdown_fast():
+    from markitdown import MarkItDown
+
+    return MarkItDown()
+
 
 VISION_PROMPT = (
     "Extract ALL visible text from this image into clean Markdown. "
@@ -108,22 +115,23 @@ def ollama_vision_markdown(path: Path) -> str:
     return content
 
 
-def convert_image(path: Path) -> str:
+def convert_image(path: Path, worker: AppleWorker | None = None) -> str:
     meta = ""
     try:
-        meta = result_text(MarkItDown().convert(str(path)))
+        meta = result_text(markitdown_fast().convert(str(path)))
     except Exception as e:
         print(f"EXIF/meta skipped: {e}", file=sys.stderr)
 
+    active = worker or SwiftAppleWorker()
     try:
-        desc = ollama_vision_markdown(path)
+        desc = active.vision_markdown(path)
         parts = []
         if meta:
             parts.append(meta.rstrip())
         parts.append("# Description:\n" + desc)
         return "\n\n".join(parts).strip()
     except Exception as e:
-        print(f"Ollama vision failed ({e}); Tesseract OCR fallback", file=sys.stderr)
+        print(f"Apple visual failed ({e}); Tesseract OCR fallback", file=sys.stderr)
         ocr = ocr_fallback(path)
         parts = [p for p in (meta, ("# OCR\n" + ocr) if ocr else "") if p]
         text = "\n\n".join(parts).strip()
@@ -211,12 +219,10 @@ def convert_pdf_pymupdf(path: Path) -> str:
         doc.close()
 
 
-def convert_pdf_vision(path: Path) -> str:
+def convert_pdf_vision(path: Path, worker: AppleWorker | None = None) -> str:
     import pymupdf
 
-    if not ollama_reachable():
-        raise RuntimeError(f"Ollama unreachable at {OLLAMA_HOST}")
-
+    active = worker or SwiftAppleWorker()
     doc = pymupdf.open(str(path))
     try:
         parts: list[str] = []
@@ -230,10 +236,15 @@ def convert_pdf_vision(path: Path) -> str:
                 pix.save(str(tmp_path))
                 print(
                     f"PDF vision page={i + 1}/{doc.page_count} "
-                    f"model={VISION_MODEL} dpi={PDF_VISION_DPI} file={path.name}",
+                    f"dpi={PDF_VISION_DPI} file={path.name}",
                     file=sys.stderr,
                 )
-                page_md = ollama_vision_markdown(tmp_path)
+                try:
+                    page_md = active.vision_markdown(tmp_path)
+                except Exception as e:
+                    print(f"Apple visual failed ({e}); Tesseract OCR fallback", file=sys.stderr)
+                    page_md = ocr_fallback(tmp_path)
+
             finally:
                 try:
                     tmp_path.unlink(missing_ok=True)
@@ -252,7 +263,7 @@ def convert_pdf_vision(path: Path) -> str:
         doc.close()
 
 
-def convert_pdf(path: Path) -> str:
+def convert_pdf(path: Path, worker: AppleWorker | None = None) -> str:
     mode = PDF_MODE
     aliases = {
         "md": "pymupdf4llm",
@@ -267,7 +278,7 @@ def convert_pdf(path: Path) -> str:
 
     if mode == "vision":
         try:
-            return convert_pdf_vision(path)
+            return convert_pdf_vision(path, worker=worker)
         except Exception as e:
             print(f"PDF vision failed ({e}); falling back to pymupdf4llm", file=sys.stderr)
             try:
@@ -282,7 +293,7 @@ def convert_pdf(path: Path) -> str:
     if mode == "auto":
         if pdf_is_hard_scan(path):
             try:
-                return convert_pdf_vision(path)
+                return convert_pdf_vision(path, worker=worker)
             except Exception as e:
                 print(f"PDF vision failed ({e}); falling back to pymupdf4llm", file=sys.stderr)
         # text-heavy or vision failed → pymupdf4llm
@@ -301,16 +312,13 @@ def convert_pdf(path: Path) -> str:
             return convert_pdf_pymupdf(path)
         except Exception as e2:
             print(f"PyMuPDF text failed ({e2}); MarkItDown fast", file=sys.stderr)
-            return result_text(MarkItDown().convert(str(path)))
+            return result_text(markitdown_fast().convert(str(path)))
 
 
 
-def markitdown_fast() -> MarkItDown:
-    return MarkItDown()
-
-
-def markitdown_ocr() -> MarkItDown:
+def markitdown_ocr():
     from openai import OpenAI
+    from markitdown import MarkItDown
 
     client = OpenAI(base_url=f"{OLLAMA_HOST}/v1", api_key="ollama")
     return MarkItDown(
@@ -336,13 +344,13 @@ def convert_office(path: Path) -> str:
         return result_text(markitdown_fast().convert(str(path)))
 
 
-def convert_one(path: Path) -> Path:
+def convert_one(path: Path, worker: AppleWorker | None = None) -> Path:
     out = path.with_suffix(".md")
     ext = path.suffix.lower()
     if ext in IMAGE_EXTS:
-        text = convert_image(path)
+        text = convert_image(path, worker=worker)
     elif ext in PDF_EXTS:
-        text = convert_pdf(path)
+        text = convert_pdf(path, worker=worker)
     elif ext in OFFICE_EXTS:
         text = convert_office(path)
     else:

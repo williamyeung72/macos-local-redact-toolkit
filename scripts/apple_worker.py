@@ -8,6 +8,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+import base64
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
@@ -38,6 +39,10 @@ class AppleWorker(Protocol):
         """Redact one chunk. entity_map is original value -> placeholder."""
         ...
 
+    def vision_markdown(self, image_path: Path) -> str:
+        """Turn an image into Markdown."""
+        ...
+
 
 class FakeAppleWorker:
     """Deterministic stand-in: emails become typed placeholders via the Entity map."""
@@ -53,6 +58,9 @@ class FakeAppleWorker:
             return mapping[email]
 
         return WorkerResult(text=EMAIL_RE.sub(repl, text), entity_map=mapping)
+
+    def vision_markdown(self, image_path: Path) -> str:
+        return f"FAKE_VISION {image_path.name}"
 
 
 def default_helper_path() -> Path:
@@ -82,17 +90,53 @@ class SwiftAppleWorker:
         self.last_argv: list[str] = []
 
     def redact_chunk(self, text: str, entity_map: dict[str, str]) -> WorkerResult:
+        data = self._invoke(
+            {
+                "op": "redact_chunk",
+                "text": text,
+                "entity_map": entity_map,
+                "instructions": REDACT_INSTRUCTIONS,
+            }
+        )
+        out_text = data.get("text")
+        out_map = data.get("entity_map")
+        if not isinstance(out_text, str) or not isinstance(out_map, dict):
+            raise RuntimeError("Apple Intelligence worker returned an incomplete result")
+        return WorkerResult(
+            text=out_text,
+            entity_map={str(k): str(v) for k, v in out_map.items()},
+        )
+
+    def vision_markdown(self, image_path: Path) -> str:
+        import mimetypes
+
+        mime, _ = mimetypes.guess_type(str(image_path))
+        if not mime:
+            mime = "image/jpeg"
+        data = self._invoke(
+            {
+                "op": "vision_markdown",
+                "image_b64": base64.b64encode(image_path.read_bytes()).decode("ascii"),
+                "mime": mime,
+                "instructions": (
+                    "Extract ALL visible text from this image into clean Markdown. "
+                    "Preserve headings, lists, and tables when recognizable. "
+                    "Prefer Traditional Chinese when the source is Chinese. "
+                    "Output Markdown only."
+                ),
+            }
+        )
+        out_text = data.get("text")
+        if not isinstance(out_text, str) or not out_text.strip():
+            raise RuntimeError("Apple visual understanding returned empty markdown")
+        return out_text.strip()
+
+    def _invoke(self, payload: dict) -> dict:
         if not self.helper.is_file() or not os.access(self.helper, os.X_OK):
             raise RuntimeError(
                 "Apple Intelligence worker not found. "
                 "Install the helper and enable Apple Intelligence on macOS 26+."
             )
-        payload = {
-            "op": "redact_chunk",
-            "text": text,
-            "entity_map": entity_map,
-            "instructions": REDACT_INSTRUCTIONS,
-        }
         argv = [str(self.helper)]
         self.last_argv = argv
         proc = subprocess.run(
@@ -114,11 +158,4 @@ class SwiftAppleWorker:
             raise RuntimeError(
                 str(data.get("error") or "Apple Intelligence is unavailable")
             )
-        out_text = data.get("text")
-        out_map = data.get("entity_map")
-        if not isinstance(out_text, str) or not isinstance(out_map, dict):
-            raise RuntimeError("Apple Intelligence worker returned an incomplete result")
-        return WorkerResult(
-            text=out_text,
-            entity_map={str(k): str(v) for k, v in out_map.items()},
-        )
+        return data
