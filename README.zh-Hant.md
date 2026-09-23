@@ -31,7 +31,7 @@
 | **PDF** | **`pymupdf4llm`**（本機；不上雲轉換） |
 | PDF（可選） | `MARKITDOWN_PDF_MODE=vision` → 整頁 Ollama vision（`qwen3.5:4b`） |
 | PDF（可選） | `text` = 純 PyMuPDF blocks；`auto` = 字少先 vision，否則 pymupdf4llm |
-| **Office**（docx／pptx／xlsx） | `markitdown-ocr` + Ollama（Ollama 掛唔到則退回 MarkItDown） |
+| **Office**（docx／pptx／xlsx） | MarkItDown；內嵌圖片在可用時走 Apple 視覺理解 |
 | **圖片** | EXIF／meta（MarkItDown）+ Ollama vision；失敗先 Tesseract |
 | 其他 | Microsoft MarkItDown |
 

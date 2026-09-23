@@ -32,7 +32,7 @@ Redaction replaces sensitive spans with typed placeholders such as `[PERSON_1]` 
 | **PDF** | **`pymupdf4llm`** (local; no cloud conversion) |
 | PDF (optional) | `MARKITDOWN_PDF_MODE=vision` → full-page Ollama vision (`qwen3.5:4b`) |
 | PDF (optional) | `text` = plain PyMuPDF blocks; `auto` = vision when extractable text is sparse, otherwise pymupdf4llm |
-| **Office** (docx / pptx / xlsx) | `markitdown-ocr` + Ollama (falls back to MarkItDown if Ollama is down) |
+| **Office** (docx / pptx / xlsx) | MarkItDown; embedded images via Apple visual understanding when available |
 | **Images** | EXIF / meta (MarkItDown) + Ollama vision; Tesseract if that fails |
 | Other | Microsoft MarkItDown |
 

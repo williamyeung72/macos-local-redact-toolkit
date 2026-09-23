@@ -4,40 +4,26 @@
 Images: EXIF + Apple visual understanding; Tesseract fallback.
 PDF: pymupdf4llm by default; MARKITDOWN_PDF_MODE=vision for full-page Apple visual;
 text|auto for plain PyMuPDF / heuristic.
-Office (docx/pptx/xlsx): markitdown-ocr + Ollama when reachable; else fast MarkItDown.
+Office (docx/pptx/xlsx): fast MarkItDown; embedded images via Apple visual when available.
+
 Other formats: MarkItDown.
 """
 from __future__ import annotations
 
-import base64
-import json
-import mimetypes
 import os
 import sys
 import tempfile
-import urllib.request
+import zipfile
 from pathlib import Path
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".tif", ".tiff"}
 OFFICE_EXTS = {".docx", ".pptx", ".xlsx"}
 PDF_EXTS = {".pdf"}
-VISION_MODEL = os.environ.get("MARKITDOWN_LLM_MODEL", "qwen3.5:4b")
 # Average extractable chars/page below this → PDF vision path (scanned / image-heavy).
 PDF_TEXT_CHARS_PER_PAGE = int(os.environ.get("MARKITDOWN_PDF_CHARS_PER_PAGE", "200"))
 # auto | text | vision
 PDF_MODE = (os.environ.get("MARKITDOWN_PDF_MODE") or "pymupdf4llm").strip().lower()
 PDF_VISION_DPI = int(os.environ.get("MARKITDOWN_PDF_VISION_DPI", "180"))
-
-
-def _ollama_base() -> str:
-    raw = (os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434").strip().rstrip("/")
-    if not raw.startswith(("http://", "https://")):
-        raw = "http://" + raw
-    raw = raw.replace("://0.0.0.0", "://127.0.0.1")
-    return raw
-
-
-OLLAMA_HOST = _ollama_base()
 
 from apple_worker import AppleWorker, SwiftAppleWorker
 
@@ -46,19 +32,6 @@ def markitdown_fast():
     from markitdown import MarkItDown
 
     return MarkItDown()
-
-
-VISION_PROMPT = (
-    "Extract ALL visible text from this image into clean Markdown. "
-    "Preserve headings, lists, and tables when recognizable. "
-    "Output Markdown only — no preamble or explanation."
-)
-
-OCR_PROMPT = (
-    "Extract all text from this image. Preserve table structure, columns, "
-    "and reading order. Prefer Traditional Chinese when the source is Chinese. "
-    "Return plain text / Markdown only — no preamble."
-)
 
 
 def result_text(result) -> str:
@@ -75,44 +48,6 @@ def ocr_fallback(path: Path) -> str:
 
     with Image.open(path) as im:
         return pytesseract.image_to_string(im.convert("RGB")).strip()
-
-
-def ollama_reachable(timeout: float = 2.0) -> bool:
-    try:
-        with urllib.request.urlopen(f"{OLLAMA_HOST}/api/tags", timeout=timeout) as resp:
-            return 200 <= getattr(resp, "status", 200) < 300
-    except Exception:
-        return False
-
-
-def ollama_vision_markdown(path: Path) -> str:
-    mime, _ = mimetypes.guess_type(str(path))
-    if not mime:
-        mime = "image/jpeg"
-    b64 = base64.b64encode(path.read_bytes()).decode("ascii")
-    payload = {
-        "model": VISION_MODEL,
-        "stream": False,
-        "messages": [
-            {
-                "role": "user",
-                "content": VISION_PROMPT,
-                "images": [b64],
-            }
-        ],
-    }
-    req = urllib.request.Request(
-        f"{OLLAMA_HOST}/api/chat",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=300) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    content = ((data.get("message") or {}).get("content") or "").strip()
-    if not content:
-        raise RuntimeError("Ollama vision returned empty content")
-    return content
 
 
 def convert_image(path: Path, worker: AppleWorker | None = None) -> str:
@@ -316,32 +251,45 @@ def convert_pdf(path: Path, worker: AppleWorker | None = None) -> str:
 
 
 
-def markitdown_ocr():
-    from openai import OpenAI
-    from markitdown import MarkItDown
-
-    client = OpenAI(base_url=f"{OLLAMA_HOST}/v1", api_key="ollama")
-    return MarkItDown(
-        enable_plugins=True,
-        llm_client=client,
-        llm_model=VISION_MODEL,
-        llm_prompt=OCR_PROMPT,
-    )
+def _is_office_media_image(member: str) -> bool:
+    lower = member.replace("\\", "/").lower()
+    if "/media/" not in lower:
+        return False
+    return Path(lower).suffix in IMAGE_EXTS
 
 
-def convert_office(path: Path) -> str:
-    print(f"Office path=ocr-preferred file={path.name}", file=sys.stderr)
-    if not ollama_reachable():
-        print(
-            f"Ollama unreachable at {OLLAMA_HOST}; fast MarkItDown for {path.name}",
-            file=sys.stderr,
-        )
-        return result_text(markitdown_fast().convert(str(path)))
+def convert_office(path: Path, worker: AppleWorker | None = None) -> str:
+    print(f"Office path=markitdown file={path.name}", file=sys.stderr)
+    text = result_text(markitdown_fast().convert(str(path)))
+    active = worker if worker is not None else SwiftAppleWorker()
+    image_markdown: list[str] = []
     try:
-        return result_text(markitdown_ocr().convert(str(path)))
-    except Exception as e:
-        print(f"Office OCR path failed ({e}); fast MarkItDown fallback", file=sys.stderr)
-        return result_text(markitdown_fast().convert(str(path)))
+        with zipfile.ZipFile(path) as zf:
+            members = [n for n in zf.namelist() if _is_office_media_image(n)]
+            for name in members:
+                suffix = Path(name).suffix.lower() or ".png"
+                tmp_path: Path | None = None
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                        tmp.write(zf.read(name))
+                        tmp_path = Path(tmp.name)
+                    desc = (active.vision_markdown(tmp_path) or "").strip()
+                    if desc:
+                        image_markdown.append(desc)
+                except Exception as e:
+                    print(
+                        f"Office embedded image skipped ({name}): {e}",
+                        file=sys.stderr,
+                    )
+                finally:
+                    if tmp_path is not None:
+                        tmp_path.unlink(missing_ok=True)
+    except zipfile.BadZipFile:
+        print(f"Office zip skipped (not a zip): {path.name}", file=sys.stderr)
+    parts = [p for p in (text, *image_markdown) if p]
+    if parts:
+        return "\n\n".join(parts).strip()
+    return f"(No extractable text from {path.name})"
 
 
 def convert_one(path: Path, worker: AppleWorker | None = None) -> Path:
@@ -352,7 +300,7 @@ def convert_one(path: Path, worker: AppleWorker | None = None) -> Path:
     elif ext in PDF_EXTS:
         text = convert_pdf(path, worker=worker)
     elif ext in OFFICE_EXTS:
-        text = convert_office(path)
+        text = convert_office(path, worker=worker)
     else:
         text = result_text(markitdown_fast().convert(str(path)))
     if not text.strip():
@@ -366,8 +314,7 @@ def main(argv: list[str]) -> int:
         print("usage: markitdown_qa.py <files...>", file=sys.stderr)
         print(
             "env: MARKITDOWN_PDF_MODE=pymupdf4llm|auto|text|vision  "
-            "MARKITDOWN_PDF_CHARS_PER_PAGE  MARKITDOWN_LLM_MODEL  "
-            "MARKITDOWN_PDF_VISION_DPI",
+            "MARKITDOWN_PDF_CHARS_PER_PAGE  MARKITDOWN_PDF_VISION_DPI",
             file=sys.stderr,
         )
         return 1

@@ -73,5 +73,88 @@ class ConvertImageTests(unittest.TestCase):
         self.assertEqual(qa.PDF_MODE, "pymupdf4llm")
 
 
+class ConvertOfficeTests(unittest.TestCase):
+    def _pptx(self, folder: Path, with_media: bool) -> Path:
+        import zipfile
+
+        src = folder / "deck.pptx"
+        with zipfile.ZipFile(src, "w") as z:
+            z.writestr("[Content_Types].xml", "<Types></Types>")
+            z.writestr("ppt/slides/slide1.xml", "<s></s>")
+            if with_media:
+                z.writestr("ppt/media/chart.png", PNG)
+        return src
+
+    def test_office_without_apple_still_writes_markdown(self) -> None:
+        from unittest import mock
+
+        from markitdown_qa import convert_one
+
+        class DeadVision(FakeAppleWorker):
+            def vision_markdown(self, image_path: Path) -> str:
+                raise RuntimeError("Apple Intelligence is unavailable")
+
+        fake_md = mock.Mock()
+        fake_md.convert.return_value = mock.Mock(
+            text_content="Slide title", markdown=None, text=None
+        )
+        with tempfile.TemporaryDirectory() as raw:
+            src = self._pptx(Path(raw), with_media=True)
+            original = src.read_bytes()
+            with mock.patch("markitdown_qa.markitdown_fast", return_value=fake_md):
+                out = convert_one(src, worker=DeadVision())
+            self.assertTrue(out.is_file())
+            self.assertIn("Slide title", out.read_text(encoding="utf-8"))
+            self.assertNotIn("CHART_MD", out.read_text(encoding="utf-8"))
+            self.assertEqual(src.read_bytes(), original)
+
+    def test_office_with_apple_reads_embedded_images(self) -> None:
+        from unittest import mock
+
+        from markitdown_qa import convert_one
+
+        class VisionWorker(FakeAppleWorker):
+            def vision_markdown(self, image_path: Path) -> str:
+                return "CHART_MD"
+
+        fake_md = mock.Mock()
+        fake_md.convert.return_value = mock.Mock(
+            text_content="Slide title", markdown=None, text=None
+        )
+        with tempfile.TemporaryDirectory() as raw:
+            src = self._pptx(Path(raw), with_media=True)
+            with mock.patch("markitdown_qa.markitdown_fast", return_value=fake_md):
+                out = convert_one(src, worker=VisionWorker())
+            body = out.read_text(encoding="utf-8")
+            self.assertIn("Slide title", body)
+            self.assertIn("CHART_MD", body)
+
+    def test_office_empty_text_without_apple_still_writes_markdown(self) -> None:
+        from unittest import mock
+
+        from markitdown_qa import convert_one
+
+        class DeadVision(FakeAppleWorker):
+            def vision_markdown(self, image_path: Path) -> str:
+                raise RuntimeError("Apple Intelligence is unavailable")
+
+        fake_md = mock.Mock()
+        fake_md.convert.return_value = mock.Mock(
+            text_content="", markdown=None, text=None
+        )
+        with tempfile.TemporaryDirectory() as raw:
+            src = self._pptx(Path(raw), with_media=True)
+            with mock.patch("markitdown_qa.markitdown_fast", return_value=fake_md):
+                out = convert_one(src, worker=DeadVision())
+            self.assertTrue(out.is_file())
+            self.assertIn("No extractable text", out.read_text(encoding="utf-8"))
+
+    def test_office_path_has_no_openai_ollama_client(self) -> None:
+        source = (ROOT / "scripts" / "markitdown_qa.py").read_text(encoding="utf-8")
+        self.assertNotIn("from openai import OpenAI", source)
+        self.assertNotIn('api_key="ollama"', source)
+        self.assertNotIn("def markitdown_ocr", source)
+
+
 if __name__ == "__main__":
     unittest.main()
