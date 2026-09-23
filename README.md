@@ -139,7 +139,7 @@ Synthetic smoke-test input is in `samples/demo-contact-list.txt`. Do not commit 
 | `MARKITDOWN_PDF_CHARS_PER_PAGE` | `200` | `auto` mode: average chars/page below this → vision |
 | `MARKITDOWN_PDF_VISION_DPI` | `180` | Full-page render DPI |
 | `APPLE_REDACT_HELPER` | `~/Scripts/apple-redact-worker` | Override the Swift helper path |
-| `REDACT_CHUNK_CHARS` | `60000` | Max characters per Apple Intelligence chunk |
+| `REDACT_CHUNK_CHARS` | `2500` | Max characters per Apple Intelligence chunk (on-device context is small) |
 
 ## Why PDF defaults to pymupdf4llm
 

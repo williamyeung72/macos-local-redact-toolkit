@@ -12,19 +12,20 @@ import base64
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
-REDACT_INSTRUCTIONS = """You are a data redaction assistant. Find sensitive information and replace it with typed, stable placeholders.
+REDACT_INSTRUCTIONS = """Extract every sensitive span from the document chunk.
 
-Rules:
-- Reuse the same token for the same entity, e.g. the first email is always [EMAIL_1]; a different email is [EMAIL_2]
-- Honour entity_map already assigned; do not renumber existing originals
-- Personal names (Chinese and English): [PERSON_n]
-- Phone [PHONE_n], email [EMAIL_n], address [ADDRESS_n]
-- ID / passport [ID_NUMBER_n], credit-card / bank account [ACCOUNT_n]
-- API key / JWT / token / password / secret [SECRET_n]
-- Order / Payment / Host / IP [ORDER_ID_n] / [PAYMENT_ID_n] / [HOST_n] / [IP_n]
-- Keep the original layout (Markdown headings, lists, tables)
-- Prefer Traditional Chinese when the source is Chinese
-- Output only the JSON object requested by the helper; no preamble
+Assign typed placeholders:
+- People names (Chinese or English): [PERSON_n]
+- Phone numbers: [PHONE_n]
+- Email addresses: [EMAIL_n]
+- Street / mailing addresses: [ADDRESS_n]
+- ID / passport numbers: [ID_NUMBER_n]
+- Bank / card account numbers: [ACCOUNT_n]
+- API keys, JWT, passwords, secrets: [SECRET_n]
+- Order IDs, payment IDs, hostnames, IP addresses: [ORDER_ID_n], [PAYMENT_ID_n], [HOST_n], [IP_n]
+
+Reuse existing entity_map placeholders for the same original string.
+Do not invent spans that are not present. Do not rewrite the document.
 """
 
 

@@ -138,7 +138,7 @@ PY="$(awk 'NR==1 { sub(/^#!/, ""); print $1; exit }' "$(command -v markitdown)")
 | `MARKITDOWN_PDF_CHARS_PER_PAGE` | `200` | `auto` 模式：平均字元／頁低於此 → vision |
 | `MARKITDOWN_PDF_VISION_DPI` | `180` | 整頁 render DPI |
 | `APPLE_REDACT_HELPER` | `~/Scripts/apple-redact-worker` | 覆寫 Swift helper 路徑 |
-| `REDACT_CHUNK_CHARS` | `60000` | 每個 Apple Intelligence chunk 的字元上限 |
+| `REDACT_CHUNK_CHARS` | `2500` | 每個 Apple Intelligence chunk 的字元上限（裝置端 context 有限） |
 
 ## 點解 PDF 預設係 pymupdf4llm？
 

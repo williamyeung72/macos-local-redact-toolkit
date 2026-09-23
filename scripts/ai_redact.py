@@ -8,6 +8,7 @@ Prefer Markdown when possible:
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import traceback
 from pathlib import Path
@@ -33,10 +34,22 @@ def log(msg: str) -> None:
 
 
 def notify(title: str, body: str) -> None:
-    safe_title = title.replace('"', '\\"')
-    safe_body = body.replace('"', '\\"')
-    os.system(
-        f'/usr/bin/osascript -e \'display notification "{safe_body}" with title "{safe_title}"\''
+    subprocess.run(
+        [
+            "/usr/bin/osascript",
+            "-e",
+            "on run argv",
+            "-e",
+            "display notification (item 1 of argv) with title (item 2 of argv)",
+            "-e",
+            "end run",
+            "--",
+            body[:180],
+            title[:80],
+        ],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
 
@@ -113,7 +126,7 @@ def chunk_text(text: str, max_chars: int) -> list[str]:
 
 
 def redact_markdown(content: str, worker: AppleWorker) -> str:
-    max_chars = int(os.environ.get("REDACT_CHUNK_CHARS", "60000"))
+    max_chars = int(os.environ.get("REDACT_CHUNK_CHARS", "2500"))
     entity_map: dict[str, str] = {}
     parts: list[str] = []
     for chunk in chunk_text(content, max_chars):

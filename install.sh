@@ -64,23 +64,40 @@ fi
 echo "markitdown: $MARKITDOWN_BIN ($("$MARKITDOWN_BIN" --version 2>/dev/null || true))"
 export MARKITDOWN_BIN
 
-# pipx venv lives under ~/.local/pipx or ~/Library/Application Support/pipx depending on version/config
+# pipx console scripts are often:
+#   #!/bin/sh
+#   '''exec' '/path/to/venv/bin/python' "$0" "$@"
+python_ok() {
+  [[ -n "${1:-}" && -x "$1" ]] || return 1
+  "$1" -c 'import sys' >/dev/null 2>&1
+}
+
 MARKITDOWN_PY=""
 if [[ -f "$MARKITDOWN_BIN" ]]; then
-  MARKITDOWN_PY="$(awk 'NR==1 { sub(/^#!/, ""); print $1; exit }' "$MARKITDOWN_BIN")"
+  cand="$(awk 'NR==1 { sub(/^#!/, ""); print $1; exit }' "$MARKITDOWN_BIN")"
+  if python_ok "$cand"; then
+    MARKITDOWN_PY="$cand"
+  else
+    cand="$(awk -F"'" '$0 ~ /exec/ {
+      for (i = 1; i <= NF; i++) if ($i ~ /python/) { print $i; exit }
+    }' "$MARKITDOWN_BIN")"
+    if python_ok "$cand"; then
+      MARKITDOWN_PY="$cand"
+    fi
+  fi
 fi
-if [[ -z "$MARKITDOWN_PY" || ! -x "$MARKITDOWN_PY" ]]; then
+if ! python_ok "${MARKITDOWN_PY:-}"; then
   for candidate in \
     "$HOME/.local/pipx/venvs/markitdown/bin/python" \
     "$HOME/Library/Application Support/pipx/venvs/markitdown/bin/python"; do
-    if [[ -x "$candidate" ]]; then
+    if python_ok "$candidate"; then
       MARKITDOWN_PY="$candidate"
       break
     fi
   done
 fi
-if [[ -z "$MARKITDOWN_PY" || ! -x "$MARKITDOWN_PY" ]]; then
-  echo "ERROR: markitdown pipx venv python not found (checked shebang + common pipx paths)."
+if ! python_ok "${MARKITDOWN_PY:-}"; then
+  echo "ERROR: markitdown pipx venv python not found (checked shebang, exec line, and common pipx paths)."
   exit 1
 fi
 echo "markitdown python: $MARKITDOWN_PY"
@@ -178,8 +195,8 @@ if "$PY" "$HELPER" "$@" >"$LOG" 2>&1; then
   /usr/bin/osascript -e 'display notification "Done" with title "Convert to Markdown"'
   exit 0
 fi
-err=$(/usr/bin/tail -n 3 "$LOG" 2>/dev/null | /usr/bin/tr '\\n' ' ' | /usr/bin/cut -c1-180)
-/usr/bin/osascript -e "display notification \\"${{err:-see ~/Library/Logs/markitdown-qa.log}}\\" with title \\"Convert to Markdown failed\\""
+err=$(/usr/bin/grep -E '^(ERROR |RuntimeError:)' "$LOG" 2>/dev/null | /usr/bin/tail -n 1 | /usr/bin/cut -c1-180)
+/usr/bin/osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title (item 2 of argv)' -e 'end run' -- "${{err:-see ~/Library/Logs/markitdown-qa.log}}" "Convert to Markdown failed"
 exit 1
 '''
 
@@ -198,8 +215,8 @@ if "$PY" "$HELPER" "$@" >"$LOG" 2>&1; then
   /usr/bin/osascript -e 'display notification "Done" with title "AI Redact"'
   exit 0
 fi
-err=$(/usr/bin/tail -n 3 "$LOG" 2>/dev/null | /usr/bin/tr '\\n' ' ' | /usr/bin/cut -c1-180)
-/usr/bin/osascript -e "display notification \\"${{err:-see ~/Library/Logs/ai-redact.log}}\\" with title \\"AI Redact failed\\""
+err=$(/usr/bin/grep -E '^(ERROR |RuntimeError:)' "$LOG" 2>/dev/null | /usr/bin/tail -n 1 | /usr/bin/cut -c1-180)
+/usr/bin/osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title (item 2 of argv)' -e 'end run' -- "${{err:-see ~/Library/Logs/ai-redact.log}}" "AI Redact failed"
 exit 1
 '''
 
